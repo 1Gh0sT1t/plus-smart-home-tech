@@ -1,4 +1,4 @@
-package ru.yandex.practicum.telemetry.collector.kafka;
+package ru.yandex.practicum.kafka.telemetry.serialization;
 
 import org.apache.avro.io.BinaryEncoder;
 import org.apache.avro.io.DatumWriter;
@@ -13,7 +13,15 @@ import java.io.IOException;
 
 public class GeneralAvroSerializer implements Serializer<SpecificRecordBase> {
 
-    private final EncoderFactory encoderFactory = EncoderFactory.get();
+    private final EncoderFactory encoderFactory;
+
+    public GeneralAvroSerializer() {
+        this(EncoderFactory.get());
+    }
+
+    public GeneralAvroSerializer(EncoderFactory encoderFactory) {
+        this.encoderFactory = encoderFactory;
+    }
 
     @Override
     public byte[] serialize(String topic, SpecificRecordBase data) {
