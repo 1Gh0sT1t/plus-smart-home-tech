@@ -39,10 +39,11 @@ public class SnapshotProcessor {
                 for (ConsumerRecord<String, SensorsSnapshotAvro> record : records) {
                     try {
                         scenarioService.analyze(record.value());
+                        commitOffset(record);
                     } catch (Exception e) {
-                        log.error("Не удалось обработать снапшот хаба [{}]", record.key(), e);
+                        throw new IllegalStateException(
+                                "Не удалось обработать снапшот хаба [" + record.key() + "]", e);
                     }
-                    commitOffset(record);
                 }
             }
 

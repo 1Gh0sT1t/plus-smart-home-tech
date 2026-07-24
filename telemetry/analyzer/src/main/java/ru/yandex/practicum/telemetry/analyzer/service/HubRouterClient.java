@@ -46,13 +46,8 @@ public class HubRouterClient {
                         .build())
                 .build();
 
-        try {
-            hubRouterClient.handleDeviceAction(request);
-            log.debug("Устройству [{}] отправлено действие [{}] сценария [{}]",
-                    sensor.getId(), action.getType(), scenario.getName());
-        } catch (Exception e) {
-            log.error("Не удалось отправить действие сценария [{}] устройству [{}]",
-                    scenario.getName(), sensor.getId(), e);
-        }
+        hubRouterClient.handleDeviceAction(request);
+        log.debug("Устройству [{}] отправлено действие [{}] сценария [{}]",
+                sensor.getId(), action.getType(), scenario.getName());
     }
 }
