@@ -1,21 +1,5 @@
-server:
-  port: 8080
-
-grpc:
-  server:
-    port: 59091
-
 spring:
   application:
     name: collector
-
-collector:
-  kafka:
-    bootstrap-servers: localhost:9092
-    topics:
-      sensor-events: telemetry.sensors.v1
-      hub-events: telemetry.hubs.v1
-
-logging:
-  level:
-    ru.yandex.practicum: INFO
+  config:
+    import: configserver:http://localhost:8888
