@@ -1,51 +1,5 @@
 spring:
   application:
     name: analyzer
-  datasource:
-    url: jdbc:postgresql://localhost:5433/telemetry_analyzer
-    username: postgres
-    password: password
-    driver-class-name: org.postgresql.Driver
-  sql:
-    init:
-      mode: always
-  jpa:
-    hibernate:
-      ddl-auto: none
-    open-in-view: false
-
-grpc:
-  client:
-    hub-router:
-      address: 'static://localhost:59090'
-      enableKeepAlive: true
-      keepAliveWithoutCalls: true
-      negotiationType: plaintext
-
-analyzer:
-  kafka:
-    poll-timeout: 1s
-    topics:
-      snapshots: telemetry.snapshots.v1
-      hub-events: telemetry.hubs.v1
-    snapshot-consumer:
-      "bootstrap.servers": localhost:9092
-      "group.id": telemetry.analyzer.snapshot
-      "client.id": analyzer-snapshot-consumer
-      "auto.offset.reset": earliest
-      "enable.auto.commit": "false"
-      "max.poll.records": "10"
-      "key.deserializer": org.apache.kafka.common.serialization.StringDeserializer
-      "value.deserializer": ru.yandex.practicum.kafka.telemetry.serialization.SensorsSnapshotDeserializer
-    hub-event-consumer:
-      "bootstrap.servers": localhost:9092
-      "group.id": telemetry.analyzer.hub
-      "client.id": analyzer-hub-consumer
-      "auto.offset.reset": earliest
-      "enable.auto.commit": "false"
-      "key.deserializer": org.apache.kafka.common.serialization.StringDeserializer
-      "value.deserializer": ru.yandex.practicum.kafka.telemetry.serialization.HubEventDeserializer
-
-logging:
-  level:
-    ru.yandex.practicum: INFO
+  config:
+    import: configserver:http://localhost:8888
