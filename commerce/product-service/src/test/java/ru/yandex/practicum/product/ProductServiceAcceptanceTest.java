@@ -151,6 +151,30 @@ class ProductServiceAcceptanceTest {
                 .containsKeys("message", "validationErrors");
     }
 
+    @Test
+    void shouldRejectBlankPatchNameAndMalformedRequests() throws Exception {
+        Map<String, Object> created = readMap(postJson("/api/products", new CreateProductRequest(
+                "Stable product", null, new BigDecimal("100.00"), null, null
+        )));
+        Long productId = asLong(created.get("id"));
+
+        MvcResult blankNameResponse = mvc.perform(patch("/api/products/{id}", productId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"   \"}"))
+                .andReturn();
+        MvcResult malformedJsonResponse = mvc.perform(post("/api/products")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{"))
+                .andReturn();
+        MvcResult wrongIdTypeResponse = mvc.perform(get("/api/products/not-a-number")).andReturn();
+
+        assertThat(status(blankNameResponse)).isEqualTo(400);
+        assertThat(status(malformedJsonResponse)).isEqualTo(400);
+        assertThat(status(wrongIdTypeResponse)).isEqualTo(400);
+        assertThat(readMap(mvc.perform(get("/api/products/{id}", productId)).andReturn()).get("name"))
+                .isEqualTo("Stable product");
+    }
+
     private MvcResult postJson(String url, Object body) throws Exception {
         return mvc.perform(post(url)
                 .contentType(MediaType.APPLICATION_JSON)

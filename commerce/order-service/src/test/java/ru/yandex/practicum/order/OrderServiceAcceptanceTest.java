@@ -105,6 +105,18 @@ class OrderServiceAcceptanceTest {
                 .containsKeys("message", "validationErrors");
     }
 
+    @Test
+    void shouldReturnBadRequestForMalformedOrderRequests() throws Exception {
+        MvcResult malformedJsonResponse = mvc.perform(post("/api/orders")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{"))
+                .andReturn();
+        MvcResult wrongIdTypeResponse = mvc.perform(get("/api/orders/not-a-number")).andReturn();
+
+        assertThat(status(malformedJsonResponse)).isEqualTo(400);
+        assertThat(status(wrongIdTypeResponse)).isEqualTo(400);
+    }
+
     private MvcResult postJson(String url, Object body) throws Exception {
         return mvc.perform(post(url)
                 .contentType(MediaType.APPLICATION_JSON)

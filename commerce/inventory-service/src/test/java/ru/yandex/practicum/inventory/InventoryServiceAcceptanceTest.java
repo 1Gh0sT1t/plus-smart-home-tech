@@ -116,6 +116,30 @@ class InventoryServiceAcceptanceTest {
                 .containsKeys("message", "validationErrors");
     }
 
+    @Test
+    void shouldReturnConflictForStateCollisionsAndBadRequestForMalformedInput() throws Exception {
+        long productId = 100_003L;
+        UpdateInventoryRequest initialStock = new UpdateInventoryRequest(productId, 5);
+        postJson("/api/inventory", initialStock);
+
+        MvcResult duplicateResponse = postJson("/api/inventory", initialStock);
+        postJson("/api/inventory/reserve", new ReserveRequest(productId, 4));
+        MvcResult belowReservedResponse = mvc.perform(put("/api/inventory")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(new UpdateInventoryRequest(productId, 3))))
+                .andReturn();
+        MvcResult malformedJsonResponse = mvc.perform(post("/api/inventory")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{"))
+                .andReturn();
+        MvcResult wrongIdTypeResponse = mvc.perform(get("/api/inventory/not-a-number")).andReturn();
+
+        assertThat(status(duplicateResponse)).isEqualTo(409);
+        assertThat(status(belowReservedResponse)).isEqualTo(409);
+        assertThat(status(malformedJsonResponse)).isEqualTo(400);
+        assertThat(status(wrongIdTypeResponse)).isEqualTo(400);
+    }
+
     private MvcResult postJson(String url, Object body) throws Exception {
         return mvc.perform(post(url)
                 .contentType(MediaType.APPLICATION_JSON)

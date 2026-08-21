@@ -10,6 +10,8 @@ import jakarta.persistence.Version;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import ru.yandex.practicum.inventory.exception.ConflictException;
+import ru.yandex.practicum.inventory.exception.InsufficientStockException;
 
 @Entity
 @Table(name = "inventory")
@@ -46,7 +48,7 @@ public class Inventory {
 
     public void updateQuantity(int newQuantity) {
         if (newQuantity < reservedQuantity) {
-            throw new IllegalArgumentException(
+            throw new ConflictException(
                     "Количество товара не может быть меньше уже зарезервированного количества"
             );
         }
@@ -55,7 +57,7 @@ public class Inventory {
 
     public void reserve(int requestedQuantity) {
         if (requestedQuantity > getAvailableQuantity()) {
-            throw new IllegalArgumentException("Недостаточно доступного товара");
+            throw new InsufficientStockException("Недостаточно доступного товара");
         }
         reservedQuantity += requestedQuantity;
     }

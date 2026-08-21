@@ -1,12 +1,14 @@
 package ru.yandex.practicum.product.dto;
 
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 
 public record UpdateProductRequest(
 
         @Size(max = 255, message = "Название не может быть длиннее 255 символов")
+        @Pattern(regexp = ".*\\S.*", message = "Название не может быть пустым")
         String name,
 
         @Size(max = 2000, message = "Описание не может быть длиннее 2000 символов")
