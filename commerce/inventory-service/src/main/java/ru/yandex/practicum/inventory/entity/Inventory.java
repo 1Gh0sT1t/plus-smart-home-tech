@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import ru.yandex.practicum.inventory.exception.ConflictException;
 import ru.yandex.practicum.inventory.exception.InsufficientStockException;
+import ru.yandex.practicum.inventory.exception.InvalidReleaseException;
 
 @Entity
 @Table(name = "inventory")
@@ -60,5 +61,15 @@ public class Inventory {
             throw new InsufficientStockException("Недостаточно доступного товара");
         }
         reservedQuantity += requestedQuantity;
+    }
+
+    public void release(int requestedQuantity) {
+        if (requestedQuantity > reservedQuantity) {
+            throw new InvalidReleaseException(
+                    "Нельзя снять резерв в количестве " + requestedQuantity
+                            + ": зарезервировано только " + reservedQuantity
+            );
+        }
+        reservedQuantity -= requestedQuantity;
     }
 }

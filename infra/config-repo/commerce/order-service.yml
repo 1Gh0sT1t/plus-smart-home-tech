@@ -2,6 +2,18 @@ server:
   port: 0
 
 spring:
+  cloud:
+    openfeign:
+      client:
+        config:
+          default:
+            connectTimeout: 2000
+            readTimeout: 5000
+          product-service:
+            loggerLevel: BASIC
+          inventory-service:
+            connectTimeout: 1500
+            readTimeout: 3000
   datasource:
     url: jdbc:postgresql://localhost:5433/order_db
     username: postgres
@@ -13,3 +25,7 @@ spring:
   sql:
     init:
       mode: never
+
+logging:
+  level:
+    ru.yandex.practicum.order.feign.ProductClient: DEBUG
