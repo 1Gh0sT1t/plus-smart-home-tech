@@ -72,6 +72,11 @@ public class Order {
         totalPrice = totalPrice.add(item.getPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
     }
 
+    public void confirm() {
+        status = OrderStatus.CONFIRMED;
+        statusDetails = "Заказ подтверждён";
+    }
+
     public Long getId() {
         return id;
     }

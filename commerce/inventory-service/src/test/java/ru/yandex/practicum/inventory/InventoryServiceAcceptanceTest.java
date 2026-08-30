@@ -12,6 +12,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import ru.yandex.practicum.inventory.dto.ReserveRequest;
 import ru.yandex.practicum.inventory.dto.UpdateInventoryRequest;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -87,6 +88,19 @@ class InventoryServiceAcceptanceTest {
         assertThat(asInt(reserve.get("availableQuantity")))
                 .as("После резервирования доступное количество должно уменьшиться")
                 .isEqualTo(11);
+
+        MvcResult releaseResponse = postJson("/api/inventory/release", new ReserveRequest(productId, 3));
+
+        assertThat(status(releaseResponse))
+                .as("POST /api/inventory/release должен снимать ранее созданный резерв")
+                .isEqualTo(200);
+        Map<String, Object> release = readMap(releaseResponse);
+        assertThat(release.get("success"))
+                .as("При успешном снятии резерва поле success должно быть true")
+                .isEqualTo(true);
+        assertThat(asInt(release.get("availableQuantity")))
+                .as("После снятия трёх единиц резерва доступное количество должно увеличиться")
+                .isEqualTo(14);
     }
 
     @Test
@@ -114,6 +128,33 @@ class InventoryServiceAcceptanceTest {
         assertThat(readMap(response))
                 .as("Ответ ошибки должен содержать сообщение и детали валидации")
                 .containsKeys("message", "validationErrors");
+    }
+
+    @Test
+    void shouldValidateReleaseOperation() throws Exception {
+        long productId = 100_004L;
+        postJson("/api/inventory", new UpdateInventoryRequest(productId, 5));
+        postJson("/api/inventory/reserve", new ReserveRequest(productId, 2));
+
+        MvcResult excessiveRelease = postJson(
+                "/api/inventory/release",
+                new ReserveRequest(productId, 3)
+        );
+        MvcResult missingInventory = postJson(
+                "/api/inventory/release",
+                new ReserveRequest(999_999L, 1)
+        );
+
+        assertThat(status(excessiveRelease))
+                .as("Нельзя снять больше товара, чем зарезервировано")
+                .isEqualTo(400);
+        assertThat(readMap(excessiveRelease).get("message"))
+                .as("Ошибка снятия резерва должна быть понятной")
+                .asString()
+                .contains("зарезервировано только 2");
+        assertThat(status(missingInventory))
+                .as("Снятие резерва для отсутствующей складской записи должно возвращать HTTP 404")
+                .isEqualTo(404);
     }
 
     @Test
@@ -152,7 +193,7 @@ class InventoryServiceAcceptanceTest {
     }
 
     private Map<String, Object> readMap(MvcResult result) throws Exception {
-        return json.readValue(result.getResponse().getContentAsString(), new TypeReference<>() {
+        return json.readValue(result.getResponse().getContentAsString(StandardCharsets.UTF_8), new TypeReference<>() {
         });
     }
 

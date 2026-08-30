@@ -75,6 +75,19 @@ public class InventoryServiceImpl implements InventoryService {
         );
     }
 
+    @Override
+    @Transactional
+    public ReserveResponse release(ReserveRequest request) {
+        Inventory inventory = findByProductId(request.productId());
+        inventory.release(request.quantity());
+        inventoryRepository.save(inventory);
+        return new ReserveResponse(
+                true,
+                inventory.getAvailableQuantity(),
+                "Резерв успешно снят"
+        );
+    }
+
     private Inventory findByProductId(Long productId) {
         return inventoryRepository.findByProductId(productId)
                 .orElseThrow(() -> new NotFoundException(

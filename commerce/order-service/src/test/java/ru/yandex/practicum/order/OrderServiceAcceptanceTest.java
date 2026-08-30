@@ -2,21 +2,30 @@ package ru.yandex.practicum.order;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import ru.yandex.practicum.order.dto.CreateOrderRequest;
 import ru.yandex.practicum.order.dto.OrderItemRequest;
+import ru.yandex.practicum.order.feign.InventoryClient;
+import ru.yandex.practicum.order.feign.ProductClient;
+import ru.yandex.practicum.order.feign.ProductDto;
+import ru.yandex.practicum.order.feign.ReserveResponse;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
@@ -31,14 +40,36 @@ class OrderServiceAcceptanceTest {
     @Autowired
     private ObjectMapper json;
 
+    @MockBean
+    private ProductClient productClient;
+
+    @MockBean
+    private InventoryClient inventoryClient;
+
+    @BeforeEach
+    void configureRemoteServices() {
+        when(productClient.getProductById(1L)).thenReturn(new ProductDto(
+                1L, "Acceptance Smart Lamp", new BigDecimal("3490.00"), true
+        ));
+        when(productClient.getProductById(2L)).thenReturn(new ProductDto(
+                2L, "Acceptance Smart Plug", new BigDecimal("1290.00"), true
+        ));
+        when(inventoryClient.reserve(any())).thenReturn(new ReserveResponse(
+                true, 10, "Товар успешно зарезервирован"
+        ));
+        when(inventoryClient.release(any())).thenReturn(new ReserveResponse(
+                true, 10, "Резерв успешно снят"
+        ));
+    }
+
     @Test
     void shouldCreateOrderStoreProductSnapshotAndFindOrderByIdAndEmail() throws Exception {
         CreateOrderRequest request = new CreateOrderRequest(
                 "Acceptance Buyer",
                 "acceptance-buyer@example.com",
                 List.of(
-                        new OrderItemRequest(1L, "Acceptance Smart Lamp", 2, new BigDecimal("3490.00")),
-                        new OrderItemRequest(2L, "Acceptance Smart Plug", 1, new BigDecimal("1290.00"))
+                        new OrderItemRequest(1L, 2),
+                        new OrderItemRequest(2L, 1)
                 )
         );
 
@@ -53,16 +84,16 @@ class OrderServiceAcceptanceTest {
                 .as("Созданный заказ должен содержать поле id")
                 .isNotNull();
         assertThat(created.get("status"))
-                .as("На текущем этапе новый заказ должен сохраняться в статусе CREATED")
-                .isEqualTo("CREATED");
+                .as("Заказ после успешного резервирования должен сохраняться в статусе CONFIRMED")
+                .isEqualTo("CONFIRMED");
         assertThat(asDecimal(created.get("totalPrice")))
-                .as("order-service должен сам рассчитывать totalPrice по снимку товаров из запроса")
+                .as("order-service должен рассчитывать totalPrice по данным product-service")
                 .isEqualByComparingTo("8270.00");
         assertThat((List<?>) created.get("items"))
                 .as("Заказ должен хранить позиции заказа")
                 .hasSize(2)
                 .anySatisfy(item -> assertThat((Map<String, Object>) item)
-                        .as("Позиция заказа должна хранить снимок названия и цены товара из запроса")
+                        .as("Позиция заказа должна хранить снимок названия и цены из product-service")
                         .containsEntry("productName", "Acceptance Smart Lamp"));
 
         MvcResult byIdResponse = mvc.perform(get("/api/orders/{id}", orderId)).andReturn();
@@ -117,6 +148,25 @@ class OrderServiceAcceptanceTest {
         assertThat(status(wrongIdTypeResponse)).isEqualTo(400);
     }
 
+    @Test
+    void shouldReturnUnprocessableEntityForInactiveProduct() throws Exception {
+        when(productClient.getProductById(3L)).thenReturn(new ProductDto(
+                3L, "Archived Product", new BigDecimal("100.00"), false
+        ));
+        CreateOrderRequest request = new CreateOrderRequest(
+                "Acceptance Buyer",
+                "acceptance-error@example.com",
+                List.of(new OrderItemRequest(3L, 1))
+        );
+
+        MvcResult response = postJson("/api/orders", request);
+
+        assertThat(status(response)).isEqualTo(422);
+        assertThat(readMap(response).get("message"))
+                .asString()
+                .contains("снят с продажи");
+    }
+
     private MvcResult postJson(String url, Object body) throws Exception {
         return mvc.perform(post(url)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -129,12 +179,12 @@ class OrderServiceAcceptanceTest {
     }
 
     private Map<String, Object> readMap(MvcResult result) throws Exception {
-        return json.readValue(result.getResponse().getContentAsString(), new TypeReference<>() {
+        return json.readValue(result.getResponse().getContentAsString(StandardCharsets.UTF_8), new TypeReference<>() {
         });
     }
 
     private List<Map<String, Object>> readList(MvcResult result) throws Exception {
-        return json.readValue(result.getResponse().getContentAsString(), new TypeReference<>() {
+        return json.readValue(result.getResponse().getContentAsString(StandardCharsets.UTF_8), new TypeReference<>() {
         });
     }
 
