@@ -10,8 +10,10 @@ import ru.yandex.practicum.order.dto.CreateOrderRequest;
 import ru.yandex.practicum.order.dto.OrderDto;
 import ru.yandex.practicum.order.entity.Order;
 import ru.yandex.practicum.order.entity.OrderItem;
+import ru.yandex.practicum.order.exception.InventoryServiceUnavailableException;
 import ru.yandex.practicum.order.exception.NotFoundException;
 import ru.yandex.practicum.order.exception.OrderProcessingException;
+import ru.yandex.practicum.order.exception.ProductServiceUnavailableException;
 import ru.yandex.practicum.order.feign.InventoryClient;
 import ru.yandex.practicum.order.feign.ProductClient;
 import ru.yandex.practicum.order.feign.ProductDto;
@@ -20,6 +22,7 @@ import ru.yandex.practicum.order.feign.ReserveResponse;
 import ru.yandex.practicum.order.mapper.OrderMapper;
 import ru.yandex.practicum.order.repository.OrderRepository;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -40,21 +43,27 @@ public class OrderServiceImpl implements OrderService {
     @Override
     public OrderDto create(CreateOrderRequest request) {
         Map<Long, Integer> quantitiesByProduct = aggregateQuantities(request);
-        Map<Long, ProductDto> productsById = new LinkedHashMap<>();
+        Map<Long, ServiceCallResult<ProductDto>> productsById = new LinkedHashMap<>();
         List<ReserveRequest> completedReservations = new ArrayList<>();
+        boolean degraded = false;
 
         try {
             for (Long productId : quantitiesByProduct.keySet()) {
-                productsById.put(productId, getAvailableProduct(productId));
+                ServiceCallResult<ProductDto> productResult = getAvailableProduct(productId);
+                productsById.put(productId, productResult);
+                degraded |= productResult.degraded();
             }
 
             for (Map.Entry<Long, Integer> entry : quantitiesByProduct.entrySet()) {
                 ReserveRequest reservation = new ReserveRequest(entry.getKey(), entry.getValue());
-                reserve(reservation);
-                completedReservations.add(reservation);
+                ServiceCallResult<Void> reservationResult = reserve(reservation);
+                degraded |= reservationResult.degraded();
+                if (!reservationResult.degraded()) {
+                    completedReservations.add(reservation);
+                }
             }
 
-            Order order = buildConfirmedOrder(request, productsById);
+            Order order = buildOrder(request, productsById, degraded);
             return orderPersistenceService.save(order);
         } catch (OrderProcessingException e) {
             releaseReservations(completedReservations);
@@ -93,13 +102,20 @@ public class OrderServiceImpl implements OrderService {
         return quantities;
     }
 
-    private ProductDto getAvailableProduct(Long productId) {
+    private ServiceCallResult<ProductDto> getAvailableProduct(Long productId) {
         ProductDto product;
         try {
             product = productClient.getProductById(productId);
+        } catch (ProductServiceUnavailableException e) {
+            log.warn("Каталог недоступен, товар с id={} будет сохранён для ручной проверки", productId, e);
+            return ServiceCallResult.degraded(placeholderProduct(productId));
         } catch (FeignException e) {
             if (e.status() == 404) {
                 throw new OrderProcessingException("Товар с id=" + productId + " не найден", e);
+            }
+            if (isTechnicalFailure(e)) {
+                log.warn("Каталог недоступен, товар с id={} будет сохранён для ручной проверки", productId, e);
+                return ServiceCallResult.degraded(placeholderProduct(productId));
             }
             throw new OrderProcessingException("Не удалось получить данные товара с id=" + productId, e);
         }
@@ -110,10 +126,10 @@ public class OrderServiceImpl implements OrderService {
         if (!Boolean.TRUE.equals(product.active())) {
             throw new OrderProcessingException("Товар с id=" + productId + " снят с продажи");
         }
-        return product;
+        return ServiceCallResult.success(product);
     }
 
-    private void reserve(ReserveRequest request) {
+    private ServiceCallResult<Void> reserve(ReserveRequest request) {
         try {
             ReserveResponse response = inventoryClient.reserve(request);
             if (response == null || !response.success()) {
@@ -121,6 +137,14 @@ public class OrderServiceImpl implements OrderService {
                         "Недостаточно товара с id=" + request.productId() + " для оформления заказа"
                 );
             }
+            return ServiceCallResult.success(null);
+        } catch (InventoryServiceUnavailableException e) {
+            log.warn(
+                    "Склад недоступен, резерв товара с id={} требует ручной проверки",
+                    request.productId(),
+                    e
+            );
+            return ServiceCallResult.degraded(null);
         } catch (FeignException e) {
             if (e.status() == 404) {
                 throw new OrderProcessingException(
@@ -134,6 +158,14 @@ public class OrderServiceImpl implements OrderService {
                         e
                 );
             }
+            if (isTechnicalFailure(e)) {
+                log.warn(
+                        "Склад недоступен, резерв товара с id={} требует ручной проверки",
+                        request.productId(),
+                        e
+                );
+                return ServiceCallResult.degraded(null);
+            }
             throw new OrderProcessingException(
                     "Не удалось зарезервировать товар с id=" + request.productId(),
                     e
@@ -141,10 +173,14 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    private Order buildConfirmedOrder(CreateOrderRequest request, Map<Long, ProductDto> productsById) {
+    private Order buildOrder(
+            CreateOrderRequest request,
+            Map<Long, ServiceCallResult<ProductDto>> productsById,
+            boolean degraded
+    ) {
         Order order = new Order(request.customerName(), request.customerEmail());
         request.items().forEach(item -> {
-            ProductDto product = productsById.get(item.productId());
+            ProductDto product = productsById.get(item.productId()).value();
             order.addItem(new OrderItem(
                     product.id(),
                     product.name(),
@@ -152,8 +188,25 @@ public class OrderServiceImpl implements OrderService {
                     product.price()
             ));
         });
-        order.confirm();
+        if (degraded) {
+            order.markPendingConfirmation();
+        } else {
+            order.confirm();
+        }
         return order;
+    }
+
+    private ProductDto placeholderProduct(Long productId) {
+        return new ProductDto(
+                productId,
+                "Товар #" + productId + " (ожидает проверки)",
+                BigDecimal.ZERO,
+                true
+        );
+    }
+
+    private boolean isTechnicalFailure(FeignException exception) {
+        return exception.status() < 0 || exception.status() >= 500;
     }
 
     private void releaseReservations(List<ReserveRequest> completedReservations) {

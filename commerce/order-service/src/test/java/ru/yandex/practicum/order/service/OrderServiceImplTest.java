@@ -11,7 +11,9 @@ import ru.yandex.practicum.order.dto.CreateOrderRequest;
 import ru.yandex.practicum.order.dto.OrderDto;
 import ru.yandex.practicum.order.dto.OrderItemRequest;
 import ru.yandex.practicum.order.entity.Order;
+import ru.yandex.practicum.order.exception.InventoryServiceUnavailableException;
 import ru.yandex.practicum.order.exception.OrderProcessingException;
+import ru.yandex.practicum.order.exception.ProductServiceUnavailableException;
 import ru.yandex.practicum.order.feign.InventoryClient;
 import ru.yandex.practicum.order.feign.ProductClient;
 import ru.yandex.practicum.order.feign.ProductDto;
@@ -108,6 +110,58 @@ class OrderServiceImplTest {
 
         verifyNoInteractions(inventoryClient);
         verify(orderPersistenceService, never()).save(any());
+    }
+
+    @Test
+    void shouldSavePendingOrderWithPlaceholderWhenProductServiceIsUnavailable() {
+        when(productClient.getProductById(1L)).thenThrow(new ProductServiceUnavailableException(
+                1L,
+                new IllegalStateException("product-service unavailable")
+        ));
+
+        OrderDto result = orderService.create(request(List.of(new OrderItemRequest(1L, 2))));
+
+        assertThat(result.status()).isEqualTo("PENDING_CONFIRMATION");
+        assertThat(result.statusDetails()).contains("ручной проверки");
+        assertThat(result.totalPrice()).isEqualByComparingTo("0.00");
+        assertThat(result.items()).singleElement().satisfies(item -> {
+            assertThat(item.productId()).isEqualTo(1L);
+            assertThat(item.productName()).isEqualTo("Товар #1 (ожидает проверки)");
+            assertThat(item.price()).isEqualByComparingTo("0.00");
+        });
+        verify(inventoryClient).reserve(new ReserveRequest(1L, 2));
+        verify(orderPersistenceService).save(any(Order.class));
+    }
+
+    @Test
+    void shouldSavePendingOrderWhenInventoryServiceIsUnavailable() {
+        when(productClient.getProductById(1L)).thenReturn(product(1L, "Smart Lamp", "100.00", true));
+        when(inventoryClient.reserve(new ReserveRequest(1L, 2))).thenThrow(
+                new InventoryServiceUnavailableException(
+                        1L,
+                        "резервирования",
+                        new IllegalStateException("inventory-service unavailable")
+                )
+        );
+
+        OrderDto result = orderService.create(request(List.of(new OrderItemRequest(1L, 2))));
+
+        assertThat(result.status()).isEqualTo("PENDING_CONFIRMATION");
+        assertThat(result.statusDetails()).contains("ручной проверки");
+        assertThat(result.totalPrice()).isEqualByComparingTo("200.00");
+        verify(orderPersistenceService).save(any(Order.class));
+        verify(inventoryClient, never()).release(any());
+    }
+
+    @Test
+    void shouldTreatServerErrorAsTechnicalDegradation() {
+        FeignException serviceUnavailable = feignException(503);
+        when(productClient.getProductById(1L)).thenThrow(serviceUnavailable);
+
+        OrderDto result = orderService.create(request(List.of(new OrderItemRequest(1L, 1))));
+
+        assertThat(result.status()).isEqualTo("PENDING_CONFIRMATION");
+        verify(orderPersistenceService).save(any(Order.class));
     }
 
     @Test

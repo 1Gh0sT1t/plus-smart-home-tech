@@ -4,6 +4,8 @@ server:
 spring:
   cloud:
     openfeign:
+      circuitbreaker:
+        enabled: true
       client:
         config:
           default:
@@ -25,6 +27,21 @@ spring:
   sql:
     init:
       mode: never
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-size: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        ignore-exceptions:
+          - ru.yandex.practicum.order.exception.RemoteBusinessException
+  timelimiter:
+    configs:
+      default:
+        timeout-duration: 3s
 
 logging:
   level:

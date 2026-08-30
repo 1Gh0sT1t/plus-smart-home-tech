@@ -77,6 +77,11 @@ public class Order {
         statusDetails = "Заказ подтверждён";
     }
 
+    public void markPendingConfirmation() {
+        status = OrderStatus.PENDING_CONFIRMATION;
+        statusDetails = "Заказ требует ручной проверки";
+    }
+
     public Long getId() {
         return id;
     }
